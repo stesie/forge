@@ -74,6 +74,8 @@ exports.testPkcs12FromAsn1_PlainCertOnly = function(test) {
 
   /* Check X.509 certificate's serial number to be sure it has been read. */
   test.equals(p12.safeContents[0].safeBags[0].cert.serialNumber, '00d4541c40d835e2f3');
+
+  test.equals(p12.verify(), false);  /* PFX has no mac. */
   test.done();
 };
 
@@ -99,6 +101,7 @@ exports.testPkcs12FromAsn1_PlainKeyOnly = function(test) {
   test.deepEqual(p12.safeContents[0].safeBags[0].key.p, expKey.p);
   test.deepEqual(p12.safeContents[0].safeBags[0].key.q, expKey.q);
 
+  test.equals(p12.verify(), false);  /* PFX has no mac. */
   test.done();
 };
 
@@ -123,6 +126,7 @@ exports.testPkcs12FromAsn1_EncryptedKeyOnly = function(test) {
   test.deepEqual(p12.safeContents[0].safeBags[0].key.p, expKey.p);
   test.deepEqual(p12.safeContents[0].safeBags[0].key.q, expKey.q);
 
+  test.equals(p12.verify(), false);  /* PFX has no mac. */
   test.done();
 };
 
@@ -193,8 +197,24 @@ exports.testPkcs12FromAsn1_EncryptedMix = function(test) {
   test.equals(p12.safeContents[1].safeBags[5].attributes.friendlyName.length, 1);
   test.equals(p12.safeContents[1].safeBags[5].attributes.friendlyName[0], 'CN=ElsterRootCA,OU=RootCA,O=Elster,C=DE');
 
+  test.equals(p12.verify(), true);
   test.done();
-}
+};
+
+exports.testPkcs12FromAsn1_IncorrectMac = function(test) {
+  var p12Der = fs.readFileSync(__dirname + '/_files/pkcs12_macfail.p12', 'binary');
+  var p12Asn1 = forge.asn1.fromDer(p12Der);
+
+  var p12 = forge.pkcs12.pkcs12FromAsn1(p12Asn1, '123456');
+
+  /* the PFX is otherwise valid ... */
+  test.equals(p12.version, 3);
+  test.equals(p12.safeContents.length, 2);
+
+  /* ... just the MAC is wrong. */
+  test.equals(p12.verify(), false);
+  test.done();
+};
 
 exports.testGetBagsByFriendlyName = function(test) {
   var p12Der = fs.readFileSync(__dirname + '/_files/pkcs12_encmixed.p12', 'binary');
@@ -207,7 +227,7 @@ exports.testGetBagsByFriendlyName = function(test) {
   test.equals(bags[0].attributes.friendlyName[0], 'signaturekey');
 
   test.done();
-}
+};
 
 exports.testGetBagsByFriendlyNameNarrowed = function(test) {
   var p12Der = fs.readFileSync(__dirname + '/_files/pkcs12_encmixed.p12', 'binary');
@@ -218,7 +238,7 @@ exports.testGetBagsByFriendlyNameNarrowed = function(test) {
 
   test.equals(bags.length, 0);
   test.done();
-}
+};
 
 exports.testGetBagsByLocalKeyId = function(test) {
   var p12Der = fs.readFileSync(__dirname + '/_files/pkcs12_encmixed.p12', 'binary');
@@ -231,7 +251,7 @@ exports.testGetBagsByLocalKeyId = function(test) {
   test.equals(bags[0].attributes.localKeyId[0], 'Time 1311855238863');
   test.equals(bags[1].attributes.localKeyId[0], 'Time 1311855238863');
   test.done();
-}
+};
 
 exports.testGetBagsByLocalKeyIdNarrowed = function(test) {
   var p12Der = fs.readFileSync(__dirname + '/_files/pkcs12_encmixed.p12', 'binary');
@@ -244,4 +264,4 @@ exports.testGetBagsByLocalKeyIdNarrowed = function(test) {
   test.equals(bags[0].attributes.localKeyId[0], 'Time 1311855238863');
   test.equals(bags[0].type, forge.pki.oids.certBag);
   test.done();
-}
+};

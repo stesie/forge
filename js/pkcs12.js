@@ -109,6 +109,7 @@ else if(typeof(module) !== 'undefined' && module.exports) {
     pkcs7: {
       asn1: require('./pkcs7asn1')
     },
+    hmac: require('./hmac'),
     pki: require('./pki'),
     util: require('./util')
   };
@@ -332,6 +333,7 @@ p12.pkcs12FromAsn1 = function(obj, password) {
   var pfx = {
     version: capture.version.charCodeAt(0),
     safeContents: [],
+    mac: {},
 
     /**
      * Get bags with matching friendlyName attribute
@@ -355,6 +357,23 @@ p12.pkcs12FromAsn1 = function(obj, password) {
     getBagsByLocalKeyId: function(localKeyId, bagType) {
       return _getBagsByAttribute(pfx.safeContents, 'localKeyId',
         localKeyId, bagType);
+    },
+
+    /**
+     * Verify MAC
+     *
+     * @return {bool} Whether the MAC is correct or not.
+     */
+    verify: function() {
+      if(pfx.mac.algorithmOid === undefined) {
+        return false;
+      }
+
+      if(pfx.mac.expectedDigest === undefined) {
+        pfx.mac.expectedDigest = pfx.mac.hmac.getMac().getBytes();
+      }
+
+      return pfx.mac.expectedDigest === pfx.mac.digest;
     }
   };
 
@@ -381,6 +400,35 @@ p12.pkcs12FromAsn1 = function(obj, password) {
   }
 
   _decodeAuthenticatedSafe(pfx, data.value, password);
+
+  if(capture.macAlgorithm !== undefined) {
+    /* create message digest instance */
+    pfx.mac.algorithmOid = asn1.derToOid(capture.macAlgorithm);
+    var md = oids[pfx.mac.algorithmOid];
+    if(md === undefined) {
+      throw {
+        message: 'Unsupported PKCS#12 HMAC hash algorithm'
+      };
+    }
+    md = forge.md[md].create();
+
+    /* generate hmac key */
+    var iter = forge.util.createBuffer(capture.macIterations);
+    iter = iter.getInt(iter.length() << 3);
+    var key = p12.generateKey(password, capture.macSalt, 3, iter,
+      md.digestLength, md);
+
+    /* create hmac instance */
+    pfx.mac.hmac = forge.hmac.create();
+    pfx.mac.hmac.start(md, key);
+    pfx.mac.hmac.update(data.value);
+
+    /* store mac data */
+    pfx.mac.digest = capture.macDigest;
+    pfx.mac.salt = capture.macSalt;
+    pfx.mac.iterations = iter;
+  }
+
   return pfx;
 };
 
@@ -778,6 +826,10 @@ p12.generateKey = function(password, salt, id, iter, n, md) {
 
   if(typeof(md) === 'undefined' || md === null) {
     md = forge.md.sha1.create();
+  }
+
+  if(typeof(salt) === 'string') {
+    salt = new forge.util.ByteBuffer(salt);
   }
 
   var u = md.digestLength;
